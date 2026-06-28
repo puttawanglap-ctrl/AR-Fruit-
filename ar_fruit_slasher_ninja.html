@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AR Fruit Slasher 🥷🍎</title>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;700;900&display=swap" rel="stylesheet">
+    
+    <!-- MediaPipe AR -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous" defer></script>
+    
+    <style>
+        :root {
+            --primary: #FF1744;
+            --secondary: #FFEA00;
+            --accent: #D500F9;
+            --success: #00E676;
+            --info: #00E5FF;
+            --bg-color: #263238; 
+            --panel-bg: rgba(255, 255, 255, 0.95);
+            --font-family: 'Prompt', sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+        body { font-family: var(--font-family); background-color: #111; overflow: hidden; width: 100vw; height: 100vh; touch-action: none; cursor: crosshair; }
+
+        #game-container {
+            position: relative; width: 100%; height: 100%; max-width: 900px; margin: 0 auto;
+            background: radial-gradient(circle at center, #37474F 0%, #111 100%);
+            overflow: hidden; box-shadow: 0 0 50px rgba(0,0,0,1); transition: background 0.5s ease;
+        }
+
+        #video-bg {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            object-fit: cover; z-index: 0; transform: scaleX(-1);
+            display: none; opacity: 0.5; pointer-events: none;
+            filter: contrast(1.2) brightness(1.1);
+        }
+
+        canvas { display: block; width: 100%; height: 100%; position: relative; z-index: 1; }
+
+        /* UI Overlays */
+        .screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            background: rgba(0, 0, 0, 0.85); z-index: 10; opacity: 0; pointer-events: none;
+            transition: opacity 0.3s ease; backdrop-filter: blur(8px);
+        }
+        .screen.active { opacity: 1; pointer-events: auto; }
+
+        .panel {
+            background: var(--panel-bg); padding: 35px 25px; border-radius: 30px;
+            text-align: center; max-width: 90%; width: 450px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8), inset 0 5px 15px rgba(255,255,255,1);
+            border: 8px solid white; animation: slashIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            max-height: 90vh; overflow-y: auto; position: relative; z-index: 11;
+        }
+        .panel::-webkit-scrollbar { width: 6px; }
+        .panel::-webkit-scrollbar-thumb { background: #ccc; border-radius: 10px; }
+
+        @keyframes slashIn {
+            0% { transform: scale(1.5) rotate(-10deg); opacity: 0; filter: blur(10px); }
+            100% { transform: scale(1) rotate(0deg); opacity: 1; filter: blur(0px); }
+        }
+
+        h1 {
+            font-size: 3.5rem; color: var(--primary); font-weight: 900;
+            text-shadow: 4px 4px 0px white, -4px -4px 0px white, 4px -4px 0px white, -4px 4px 0px white, 0px 10px 20px rgba(255,23,68,0.5);
+            margin-bottom: 5px; line-height: 1.1; animation: floatTxt 3s infinite alternate; text-transform: uppercase;
+        }
+        @keyframes floatTxt { 0% { transform: translateY(0); } 100% { transform: translateY(-10px); } }
+        
+        h2 { font-size: 2rem; color: var(--accent); margin-bottom: 10px; font-weight: 900; }
+        p { font-size: 1.3rem; color: var(--text-main); margin-bottom: 15px; font-weight: bold; }
+
+        /* Juicy Buttons */
+        .btn {
+            background: linear-gradient(135deg, #FF5252 0%, #D50000 100%);
+            color: white; border: none; padding: 15px 30px;
+            font-size: 1.6rem; font-weight: 900; border-radius: 50px;
+            cursor: pointer; box-shadow: 0 8px 0 #B71C1C, 0 15px 20px rgba(0,0,0,0.4);
+            transition: all 0.1s; width: 85%; margin: 10px 0; font-family: inherit;
+            position: relative; overflow: hidden; letter-spacing: 1px; border: 2px solid #FF8A80;
+        }
+        .btn::after {
+            content: ''; position: absolute; top: 0; left: -100%; width: 50%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+            transform: skewX(-25deg); animation: shine 2.5s infinite;
+        }
+        @keyframes shine { 0% { left: -100%; } 20% { left: 200%; } 100% { left: 200%; } }
+        
+        .btn:active { transform: translateY(8px); box-shadow: 0 0px 0 #B71C1C, 0 5px 10px rgba(0,0,0,0.4); }
+        .btn.secondary { background: linear-gradient(135deg, #00B0FF 0%, #0091EA 100%); box-shadow: 0 8px 0 #006064; border-color: #84FFFF;}
+        .btn.secondary:active { box-shadow: 0 0px 0 #006064; }
+        .btn.orange { background: linear-gradient(135deg, #FFAB00 0%, #FF6D00 100%); box-shadow: 0 8px 0 #E65100; border-color:#FFE57F;}
+        .btn.orange:active { box-shadow: 0 0px 0 #E65100; }
+        .btn.ar-btn { background: linear-gradient(135deg, #E040FB 0%, #AA00FF 100%); box-shadow: 0 8px 0 #4A148C; border-color:#EA80FC;}
+        .btn.ar-btn:active { box-shadow: 0 0px 0 #4A148C; }
+
+        /* --- Scratch Blocks CSS --- */
+        .code-concept-title { font-size: 1.3rem; color: var(--accent); font-weight: 900; margin: 10px 0; border-bottom: 3px dashed #ccc; padding-bottom: 5px; text-align:left;}
+        .scratch-container { background: #fff; border: 3px solid #e0e0e0; border-radius: 12px; padding: 15px; text-align: left; margin-bottom: 15px; overflow-x: auto; box-shadow: inset 0 3px 6px rgba(0,0,0,0.1); display: flex; flex-direction: column; align-items: flex-start; }
+        .s-block { padding: 8px 15px; color: white; font-family: "Helvetica Neue", Helvetica, sans-serif; font-weight: bold; font-size: 15px; width: fit-content; line-height: 1.4; border: 1px solid rgba(0,0,0,0.2); box-shadow: inset -1px -1px 2px rgba(0,0,0,0.2), inset 1px 1px 2px rgba(255,255,255,0.4); display: flex; align-items: center; gap: 8px; margin-bottom: -1px; z-index: 1; }
+        .s-hat { border-radius: 20px 20px 4px 4px; padding-top: 12px; }
+        .s-stack { border-radius: 5px; }
+        .s-val { border-radius: 20px; padding: 2px 10px; background-color: var(--bg-col); border: 1px solid rgba(0,0,0,0.3); box-shadow: inset -1px -1px 2px rgba(0,0,0,0.2); display: inline-flex; align-items: center; }
+        .s-input { background: white; color: #333; border-radius: 15px; padding: 2px 10px; border: 2px solid rgba(0,0,0,0.4); font-weight: bold; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); }
+        .s-bool-wrap { display: inline-block; margin: 0 2px; }
+        .s-bool { clip-path: polygon(15px 0, calc(100% - 15px) 0, 100% 50%, calc(100% - 15px) 100%, 15px 100%, 0 50%); padding: 3px 20px; background-color: var(--bg-col); display: inline-flex; align-items: center; font-weight: bold; border: 1px solid rgba(0,0,0,0.2);}
+        .s-c-wrap { display: flex; flex-direction: column; margin-bottom: -1px; width: fit-content; }
+        .s-c-top { border-radius: 5px 5px 5px 0; }
+        .s-c-mid { border-left: 15px solid var(--bg-col); padding-left: 8px; display: flex; flex-direction: column; background: transparent; min-height: 20px; }
+        .s-c-bot { border-radius: 0 5px 5px 5px; min-height: 25px; min-width: 140px; }
+        .c-ev { background-color: #FFBF00; --bg-col: #FFBF00; }
+        .c-ctrl { background-color: #FFAB19; --bg-col: #FFAB19; }
+        .c-mot { background-color: #4C97FF; --bg-col: #4C97FF; }
+        .c-sns { background-color: #5CB1D6; --bg-col: #5CB1D6; }
+        .c-var { background-color: #FF8C1A; --bg-col: #FF8C1A; }
+        .c-op { background-color: #59C059; --bg-col: #59C059; }
+
+        /* --- HUD --- */
+        #hud { position: absolute; top: 15px; left: 15px; right: 15px; display: flex; justify-content: space-between; align-items: flex-start; z-index: 5; pointer-events: none; }
+        .hud-left { display: flex; flex-direction: column; gap: 10px; }
+        .hud-box { background: rgba(255, 255, 255, 0.9); padding: 10px 20px; border-radius: 25px; font-weight: 900; font-size: 1.5rem; box-shadow: 0 5px 15px rgba(0,0,0,0.5); border: 4px solid var(--secondary); display: flex; align-items: center; gap: 8px; color: var(--primary); backdrop-filter: blur(5px);}
+        #score-display { font-size: 2.2rem; color: #D50000; text-shadow: 2px 2px 0px white; }
+        
+        #combo-display { background: linear-gradient(135deg, #FF1744, #D50000); color: #FFEA00; border: 3px solid white; display: none; font-style: italic; font-size: 2rem; padding: 5px 25px; box-shadow: 0 4px 20px rgba(213, 0, 0, 0.8); animation: pulseCombo 0.3s infinite alternate; text-shadow: 3px 3px 0px #000; }
+        @keyframes pulseCombo { 0% { transform: scale(1) rotate(-3deg); } 100% { transform: scale(1.15) rotate(3deg); } }
+
+        #lives-container { display: flex; gap: 5px; border-color: var(--primary); }
+        .heart { color: #FF1744; font-size: 2rem; filter: drop-shadow(0 3px 3px rgba(0,0,0,0.5)); animation: heartbeat 0.8s infinite alternate;}
+        @keyframes heartbeat { 0% { transform: scale(1); } 100% { transform: scale(1.15); } }
+
+        .score-pop { animation: popScore 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        @keyframes popScore { 0% { transform: scale(1); } 50% { transform: scale(1.8) rotate(10deg); color: #FFEA00; } 100% { transform: scale(1); } }
+
+        /* Blade & Blood overlay */
+        #flash-overlay { position: absolute; top:0; left:0; width:100%; height:100%; pointer-events: none; z-index: 9; opacity: 0; mix-blend-mode: overlay; transition: opacity 0.1s;}
+        
+        .level-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin: 15px 0; }
+        .level-btn { background: #eee; border: 4px solid #ccc; border-radius: 15px; padding: 15px 5px; font-weight: 900; font-size: 1.4rem; cursor: pointer; color: #888; }
+        .level-btn.unlocked { background: var(--success); color: white; border-color: #1B5E20; box-shadow: 0 6px 0 #1B5E20, 0 5px 10px rgba(0,0,0,0.3); text-shadow: 2px 2px 0 rgba(0,0,0,0.3); }
+        .level-btn.unlocked:active { transform: translateY(6px); box-shadow: 0 0 0 #1B5E20; }
+
+        /* Certificate */
+        #certificate-panel { width: 100%; max-width: 700px; background: #fff8e1; border: 15px solid #ffc107; border-radius: 20px; padding: 40px 30px; position: relative; box-shadow: 0 20px 50px rgba(0,0,0,0.8); background-image: repeating-linear-gradient(45deg, rgba(255,193,7,0.1) 0px, rgba(255,193,7,0.1) 20px, transparent 20px, transparent 40px); }
+        .cert-title { font-size: 3rem; color: #d32f2f; margin-bottom: 5px; font-weight: 900; }
+        .cert-subtitle { font-size: 1.5rem; color: #555; margin-bottom: 30px; font-weight: bold;}
+        .cert-name { font-size: 2.5rem; color: #1976d2; border-bottom: 3px solid #1976d2; display: inline-block; padding: 0 30px; margin-bottom: 20px; min-width: 250px; font-weight: 900; }
+        .cert-details { font-size: 1.3rem; margin: 10px 0; color: #333; font-weight: bold; }
+        .seal { position: absolute; bottom: 30px; right: 30px; font-size: 6rem; filter: drop-shadow(0 5px 5px rgba(0,0,0,0.5)); animation: spin 10s linear infinite; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+        @media print {
+            body * { visibility: hidden; }
+            #screen-certificate, #screen-certificate * { visibility: visible; }
+            #screen-certificate { position: absolute; left: 0; top: 0; width: 100vw; height: 100vh; background: white; transform: none !important;}
+            .no-print { display: none !important; }
+            #certificate-panel { border: 10px solid #ffc107; box-shadow: none; margin: 0 auto;}
+            @page { size: landscape; }
+        }
+
+        #controls-hint {
+            position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+            color: #FFEA00; font-weight: 900; font-size: 1.5rem; background: rgba(0,0,0,0.7);
+            padding: 15px 30px; border-radius: 40px; pointer-events: none; z-index: 4;
+            display: flex; align-items: center; gap: 15px; border: 4px solid white;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5); text-shadow: 2px 2px 0 #000;
+            animation: bounceIn 1s infinite alternate;
+        }
+        
+        #custom-modal .panel { border: 8px solid var(--info); box-shadow: 0 0 50px rgba(0,188,212,0.8); }
+        #modal-title { font-size:2.2rem; color:var(--info); }
+        #modal-message { font-size: 1.4rem; font-weight:900; margin: 20px 0; color:#444; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <video id="video-bg" autoplay playsinline></video>
+    <div id="flash-overlay"></div>
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="ar-loading" style="display: none; position: absolute; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.9); color: #00E5FF; padding: 15px 30px; border-radius: 30px; z-index: 100; font-weight: 900; font-size: 1.2rem; border: 2px solid #00BCD4; box-shadow: 0 0 20px #00BCD4;">
+        ✨ กำลังร่ายเวทมนตร์เปิดกล้อง AR...
+    </div>
+
+    <div id="hud" style="display: none;">
+        <div class="hud-left">
+            <div class="hud-box" id="score-display">⭐ <span id="score">0</span></div>
+            <div class="hud-box" id="combo-display">🔥 COMBO x<span id="combo-count">2</span></div>
+        </div>
+        <div class="hud-box" style="border-color: var(--success); color: var(--success);">ด่าน <span id="level">1</span></div>
+        <div class="hud-box" id="lives-container"></div>
+    </div>
+    
+    <!-- Progress Bar moved to bottom for Ninja feel -->
+    <div id="progress-container" style="display: none; position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); width: 60%; height: 20px; background: rgba(0,0,0,0.8); border-radius: 20px; border: 3px solid #fff; box-shadow: 0 5px 15px rgba(0,0,0,0.6); z-index: 5; overflow: hidden;">
+        <div id="progress-bar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #FF1744, #FFEA00, #00E676); border-radius: 15px; transition: width 0.3s; box-shadow: inset 0 2px 5px rgba(255,255,255,0.5);"></div>
+    </div>
+
+    <div id="controls-hint" style="display: none;">👈 ปัดนิ้วเพื่อฟันผลไม้! ⚔️</div>
+
+    <!-- SCREENS -->
+    <div id="screen-menu" class="screen active">
+        <div class="panel">
+            <div style="font-size: 6rem; margin-bottom: -20px; filter: drop-shadow(0 10px 10px rgba(0,0,0,0.5)); animation: pulseText 2s infinite alternate;">🥷🍎</div>
+            <h1>AR Fruit<br>Slasher</h1>
+            <p style="color:#FF1744;">วิถีนินจาฟันผลไม้กระจุย!</p>
+            <!-- ⚡ เพิ่ม onclick ลงไปที่ HTML ของปุ่มโดยตรง รับประกันว่ากดได้ 100% -->
+            <button class="btn" onclick="Game.startNewGame()">เริ่มฟันเลย! ⚔️</button>
+            <button class="btn ar-btn" id="menu-btn-ar" onclick="ARSystem.toggleAR()">🖐️ เปิดกล้อง AR ดาบเลเซอร์</button>
+            <button class="btn secondary" onclick="Game.showLevelSelect()">เลือกด่าน 🗺️</button>
+            <button class="btn orange" style="font-size: 1.1rem; padding: 12px 20px;" onclick="Game.showCodeSummary()">📜 สรุปโค้ด Scratch</button>
+        </div>
+    </div>
+
+    <div id="screen-level-select" class="screen">
+        <div class="panel">
+            <h2 style="font-size:2.5rem;">เลือกด่าน</h2>
+            <div class="level-grid" id="level-grid-container"></div>
+            <button class="btn secondary" style="margin-top: 20px;" onclick="Game.showScreen('menu')">กลับหน้าหลัก</button>
+        </div>
+    </div>
+
+    <div id="screen-level-intro" class="screen">
+        <div class="panel">
+            <h1 id="intro-level-title" style="font-size: 3.5rem;">ด่านที่ 1</h1>
+            <h2 id="intro-world-name" style="color: var(--success); font-size: 2rem;">สวนผลไม้</h2>
+            <p id="intro-objective" style="font-weight: 900; font-size: 1.6rem; color:#E65100;">ฟันแอปเปิ้ลให้ครบ 10 ลูก!</p>
+            <div style="font-size: 4.5rem; margin: 15px 0; filter: drop-shadow(0 8px 8px rgba(0,0,0,0.4));" id="intro-icons">🍎</div>
+            
+            <div id="intro-code-section" style="display: none;">
+                <div class="code-concept-title" id="intro-concept-title">🧠 เรียนรู้คำสั่ง:</div>
+                <div class="scratch-container" id="intro-scratch-blocks"></div>
+            </div>
+            <button class="btn" style="margin-top: 20px; font-size: 2rem;" onclick="Game.startLevelPlay()">START! ⚔️</button>
+        </div>
+    </div>
+
+    <div id="screen-level-complete" class="screen">
+        <div class="panel">
+            <div style="font-size: 6rem; filter: drop-shadow(0 10px 20px #FFD700); animation: pulseText 1s infinite alternate;">🥷✨</div>
+            <h1 style="font-size: 4rem;">CLEAR!</h1>
+            <p style="font-size: 1.8rem; font-weight:900;">ผ่านด่าน <span id="complete-level-num" style="color:var(--primary); font-size:2.5rem;">1</span></p>
+            <div style="background: #f4f4f9; padding: 20px; border-radius: 20px; margin-bottom: 20px; border:4px solid #eee;">
+                <p style="margin:0; font-size:1.5rem; color:#888;">คะแนนรวมทะลุเป้า:</p>
+                <strong id="complete-score" style="color: #4CAF50; font-size: 3.5rem; text-shadow: 2px 2px 0 #1B5E20;">0</strong>
+            </div>
+            <button class="btn" onclick="Game.nextLevel()">ไปด่านต่อไป ➡️</button>
+            <button class="btn secondary" onclick="Game.showScreen('menu')">เมนูหลัก</button>
+        </div>
+    </div>
+
+    <div id="screen-game-over" class="screen">
+        <div class="panel">
+            <div style="font-size: 6rem; filter: drop-shadow(0 10px 20px rgba(255,0,0,0.5)); animation: bounceIn 0.5s;">💣💥</div>
+            <h1 style="color: #d32f2f; font-size: 3.5rem;">GAME OVER</h1>
+            <p style="font-size: 1.5rem; font-weight:900;">ฟันโดนระเบิด! เอาใหม่นะนินจา!</p>
+            <button class="btn orange" style="font-size:2rem;" onclick="Game.restartLevel()">RETRY 🔄</button>
+            <button class="btn secondary" onclick="Game.showScreen('menu')">เมนูหลัก</button>
+        </div>
+    </div>
+
+    <div id="screen-certificate" class="screen" style="background: rgba(0,0,0,0.9);">
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%;">
+            <div id="certificate-panel">
+                <div style="text-align: center;">
+                    <div class="cert-title">👑 FRUIT NINJA MASTER 👑</div>
+                    <div class="cert-subtitle">สุดยอดนินจาฟันผลไม้ระดับจักรวาล</div>
+                    <p style="font-size:1.4rem; font-weight:900;">ประกาศนียบัตรนี้มอบให้แก่</p>
+                    <div class="no-print" style="margin-bottom: 20px;">
+                        <input type="text" id="cert-input-name" placeholder="พิมพ์ชื่อนินจาตรงนี้..." style="font-size: 2rem; padding: 15px; width: 85%; text-align: center; border: 4px solid #9C27B0; border-radius: 15px; font-family: inherit; font-weight: 900; color:#9C27B0; box-shadow:inset 0 4px 6px rgba(0,0,0,0.1);">
+                    </div>
+                    <div class="cert-name hidden" id="cert-display-name" style="font-size:3rem; color:#9C27B0;">ผู้เล่นคนเก่ง</div>
+                    <p style="font-size: 1.3rem; font-weight: bold;">พิชิตภารกิจ 20 ด่านด้วยความแม่นยำ</p>
+                    <div class="cert-details" style="margin-top:20px; font-size: 1.8rem; background:#4CAF50; color:white; padding:10px; border-radius:15px; border:3px solid #1B5E20;">คะแนนระดับเทพ: <strong id="cert-total-score">0</strong></div>
+                    <div class="seal">🏆</div>
+                </div>
+            </div>
+            <div class="no-print" style="text-align: center; margin-top: 30px; display: flex; flex-direction: column; gap: 15px; align-items: center;">
+                <button class="btn" style="width: auto; padding: 20px 50px; font-size:2rem;" onclick="Game.printCertificate()">🖨️ พิมพ์อวดเพื่อน!</button>
+                <div style="display: flex; gap: 15px;">
+                    <button class="btn secondary" style="width: auto; padding: 12px 25px; font-size: 1.2rem;" onclick="Game.showCodeSummary()">📜 ดูโค้ดสร้างเกม</button>
+                    <button class="btn orange" style="width: auto; padding: 12px 25px; font-size: 1.2rem;" onclick="Game.resetGameData()">🔄 รีเซ็ตตำนานใหม่</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Code Summary Screen -->
+    <div id="screen-code-summary" class="screen">
+        <div class="panel" style="width: 700px; max-width: 95%;">
+            <h2 style="text-align: center; color: var(--primary); margin-bottom: 5px; font-size: 2.2rem;">🧠 สรุปบล็อกคำสั่งสร้างเกม</h2>
+            <p style="text-align: center; font-size: 1rem; color: #666; margin-bottom: 15px;">เรียนรู้ตรรกะเบื้องหลังเกมฟันผลไม้ นำไปประยุกต์ใน Scratch ได้!</p>
+            <div id="code-summary-content" style="text-align: left;"></div>
+            <div style="text-align: center; margin-top: 20px; display: flex; flex-direction: column; gap: 10px; align-items: center;">
+                <button class="btn orange" style="width: 80%;" onclick="Game.showScratchTutorial()">🚀 สอนสร้างใน Scratch ทีละขั้น</button>
+                <button class="btn secondary" style="width: 80%;" onclick="Game.showScreen('menu')">ปิดหน้าต่าง ❌</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scratch Tutorial Screen -->
+    <div id="screen-scratch-tutorial" class="screen">
+        <div class="panel" style="width: 800px; max-width: 95%;">
+            <h2 style="text-align: center; color: var(--accent); margin-bottom: 5px; font-size: 2.2rem;">🚀 คู่มือสร้างเกมนินจาใน Scratch</h2>
+            <p style="text-align: center; font-size: 1rem; color: #666; margin-bottom: 15px;">5 ขั้นตอนสร้างเกมฟันผลไม้สุดเท่!</p>
+            <div id="scratch-tutorial-content" style="display: flex; flex-direction: column; gap: 10px; text-align: left;"></div>
+            <div style="text-align: center; margin-top: 20px; display: flex; flex-direction: column; gap: 10px; align-items: center;">
+                <button class="btn secondary" style="width: 80%;" onclick="Game.showCodeSummary()">⬅️ กลับไปหน้าสรุปโค้ด</button>
+                <button class="btn" style="width: 80%;" onclick="Game.showScreen('menu')">ปิดหน้าต่าง ❌</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom Modal (Dialog) -->
+    <div id="custom-modal" class="screen" style="z-index: 9999;">
+        <div class="panel" style="border: 8px solid var(--info); box-shadow: 0 0 50px rgba(0,188,212,0.8);">
+            <h2 id="modal-title" style="font-size:2.2rem; color:var(--info);">แจ้งเตือนระบบ</h2>
+            <p id="modal-message" style="font-size: 1.4rem; font-weight:900; margin: 20px 0; color:#444;">ข้อความ...</p>
+            <div style="display: flex; gap: 15px; justify-content: center; width: 100%; margin-top:20px;">
+                <!-- ID ของปุ่ม Modal ยังคงอยู่เพื่อให้เข้าถึงจาก JavaScript ได้ -->
+                <button class="btn" id="modal-btn-ok" style="width: auto; padding: 12px 40px; margin: 0; background:linear-gradient(180deg, #00E5FF 0%, #00BCD4 100%); box-shadow: 0 6px 0 #0097A7;">ลุยเลย!</button>
+                <button class="btn secondary" id="modal-btn-cancel" style="width: auto; padding: 12px 40px; margin: 0; display: none; background:linear-gradient(180deg, #9E9E9E 0%, #757575 100%); box-shadow: 0 6px 0 #424242;">ไว้ก่อน</button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+// --- Global Initializations ---
+let canvas, ctx, cw, ch;
+
+function initCanvas() {
+    canvas = document.getElementById('gameCanvas');
+    if (!canvas) return;
+    ctx = canvas.getContext('2d');
+    resizeCanvas();
+}
+
+function resizeCanvas() {
+    if (!canvas) return;
+    cw = window.innerWidth || document.documentElement.clientWidth || 800;
+    ch = window.innerHeight || document.documentElement.clientHeight || 600;
+    if (cw > 900) cw = 900;
+    canvas.width = cw;
+    canvas.height = ch;
+}
+window.addEventListener('resize', resizeCanvas);
+
+// --- Custom Modal System (Bypass Sandbox Blocks) ---
+window.UI = {
+    showAlert(title, message, onOk = null) {
+        const modal = document.getElementById('custom-modal');
+        if (!modal) return;
+        document.getElementById('modal-title').innerText = title;
+        document.getElementById('modal-message').innerText = message;
+        const okBtn = document.getElementById('modal-btn-ok');
+        const cancelBtn = document.getElementById('modal-btn-cancel');
+        cancelBtn.style.display = 'none';
+        okBtn.onclick = () => { modal.classList.remove('active'); if (onOk) onOk(); };
+        modal.classList.add('active');
+    },
+    showConfirm(title, message, onConfirm, onCancel = null) {
+        const modal = document.getElementById('custom-modal');
+        if (!modal) return;
+        document.getElementById('modal-title').innerText = title;
+        document.getElementById('modal-message').innerText = message;
+        const okBtn = document.getElementById('modal-btn-ok');
+        const cancelBtn = document.getElementById('modal-btn-cancel');
+        cancelBtn.style.display = 'block';
+        okBtn.onclick = () => { modal.classList.remove('active'); if (onConfirm) onConfirm(); };
+        cancelBtn.onclick = () => { modal.classList.remove('active'); if (onCancel) onCancel(); };
+        modal.classList.add('active');
+    }
+};
+
+window.SafeStorage = {
+    getItem(key) { try { return localStorage.getItem(key); } catch(e) { return null; } },
+    setItem(key, value) { try { localStorage.setItem(key, value); } catch(e) { } },
+    removeItem(key) { try { localStorage.removeItem(key); } catch(e) {} }
+};
+
+// --- 8-Bit Audio System ---
+window.AudioSys = {
+    ctx: null,
+    init() { try { if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) {} },
+    playTone(freq, type, duration, vol=0.1) {
+        this.init(); if (!this.ctx) return;
+        try {
+            const osc = this.ctx.createOscillator(); const gain = this.ctx.createGain();
+            osc.type = type; osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+            gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+            osc.connect(gain); gain.connect(this.ctx.destination);
+            osc.start(); osc.stop(this.ctx.currentTime + duration);
+        } catch(e) {}
+    },
+    playSwoosh() { 
+        this.init(); 
+        if(!this.ctx) return;
+        try {
+            const osc = this.ctx.createOscillator(); const gain = this.ctx.createGain();
+            osc.type = 'sine'; osc.frequency.setValueAtTime(400, this.ctx.currentTime);
+            osc.frequency.exponentialRampToValueAtTime(800, this.ctx.currentTime + 0.1);
+            gain.gain.setValueAtTime(0.1, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+            osc.connect(gain); gain.connect(this.ctx.destination); osc.start(); osc.stop(this.ctx.currentTime + 0.1);
+        } catch(e){}
+    },
+    playSlice(comboMultiplier = 1) { 
+        this.init(); 
+        const baseFreq = 800 + (comboMultiplier * 100); 
+        this.playTone(baseFreq, 'square', 0.05, 0.15); 
+        setTimeout(() => this.playTone(baseFreq * 1.5, 'sine', 0.1, 0.1), 30); 
+    },
+    playCombo() { this.init(); this.playTone(900, 'square', 0.1, 0.1); setTimeout(() => this.playTone(1300, 'square', 0.15, 0.1), 80); },
+    playFever() { this.init(); [400, 600, 800, 1000, 1400, 2000].forEach((f, i) => setTimeout(() => this.playTone(f, 'sine', 0.15, 0.15), i * 60)); },
+    playExplosion() { this.init(); this.playTone(100, 'sawtooth', 0.5, 0.5); setTimeout(() => this.playTone(60, 'sawtooth', 0.6, 0.5), 100); },
+    playWin() { [500, 600, 750, 1000, 1500].forEach((f, i) => setTimeout(() => this.playTone(f, 'square', 0.15, 0.1), i * 100)); },
+    playLose() { [300, 250, 200, 150, 80].forEach((f, i) => setTimeout(() => this.playTone(f, 'triangle', 0.3, 0.25), i * 150)); }
+};
+
+// --- Game Data ---
+const EMOJIS = {
+    fruits: { apple:{e:'🍎',pts:10, c:'#FF1744'}, banana:{e:'🍌',pts:15, c:'#FFEA00'}, orange:{e:'🍊',pts:20, c:'#FF9100'}, grape:{e:'🍇',pts:25, c:'#D500F9'}, watermelon:{e:'🍉',pts:30, c:'#00E676'}, strawberry:{e:'🍓',pts:40, c:'#D50000'}, mango:{e:'🥭',pts:50, c:'#FFB300'}, pineapple:{e:'🍍',pts:60, c:'#FFD600'}, cherry:{e:'🍒',pts:80, c:'#C51162'}, dragon:{e:'🐉',pts:100, c:'#F50057'}, gold:{e:'⭐',pts:200, c:'#FFEA00'}, feverStar:{e:'🌟',pts:100,special:'fever', c:'#00E5FF'} },
+    hazards: { rock:{e:'🪨',dmg:1}, bomb:{e:'💣',dmg:1}, rotten:{e:'🤢',dmg:1}, lightning:{e:'⚡',dmg:1}, spiky:{e:'🌵',dmg:1} }
+};
+
+const WORLDS = [
+    { name: "🍎 สวนผลไม้", bg: "#87CEEB", text: "ฝึกฟันพื้นฐาน!" },
+    { name: "🌳 ป่าเวทมนตร์", bg: "#2E7D32", text: "ระวังของเน่า!" },
+    { name: "🌈 ดินแดนสายรุ้ง", bg: "#FFCDD2", text: "ฟีเวอร์ไทม์!" },
+    { name: "🚀 อวกาศผลไม้", bg: "#1A237E", text: "แรงโน้มถ่วงศูนย์!" }
+];
+
+const S_UI = {
+    hat: (c, text) => `<div class="s-block s-hat ${c}">${text}</div>`,
+    stack: (c, text) => `<div class="s-block s-stack ${c}">${text}</div>`,
+    c_block: (c, text, inner) => `<div class="s-c-wrap ${c}"><div class="s-block s-stack s-c-top ${c}">${text}</div><div class="s-c-mid ${c}">${inner}</div><div class="s-block s-stack s-c-bot ${c}"></div></div>`,
+    c_block_else: (c, textIf, innerIf, textElse, innerElse) => `<div class="s-c-wrap ${c}"><div class="s-block s-stack s-c-top ${c}">${textIf}</div><div class="s-c-mid ${c}">${innerIf}</div><div class="s-block s-stack s-c-mid-bar ${c}">${textElse}</div><div class="s-c-mid ${c}">${innerElse}</div><div class="s-block s-stack s-c-bot ${c}"></div></div>`,
+    bool: (c, text) => `<div class="s-bool-wrap"><div class="s-bool ${c}">${text}</div></div>`,
+    val: (c, text) => `<div class="s-val ${c}">${text}</div>`,
+    input: (text) => `<div class="s-input">${text}</div>`
+};
+
+const LEVEL_CONFIGS = [
+    { target: 15, f: ['apple'], h: [], rate: 60, speed: 1.2, desc: "ฟันแอปเปิ้ลเบาๆ", concept: "วิถีดาบ (Drawing Trail)", blocks: S_UI.hat('c-ev', 'เมื่อคลิก 🟢') + S_UI.c_block('c-ctrl', 'วนซ้ำตลอด', S_UI.stack('c-mot', `วาดวิถีดาบตาม ${S_UI.val('c-sns', 'ตำแหน่งนิ้ว')}`)) },
+    { target: 30, f: ['apple', 'banana'], h: [], rate: 50, speed: 1.4, desc: "หั่นผลไม้รัวๆ", concept: "ตรวจจับการฟัน (Intersection)", blocks: S_UI.hat('c-ev', 'เมื่อคลิก 🟢') + S_UI.c_block('c-ctrl', 'ถ้า', S_UI.bool('c-sns', 'วิถีดาบตัดผ่านผลไม้ ?') + S_UI.stack('c-var', `เพิ่มคะแนน ${S_UI.input('10')}`)) },
+    { target: 50, f: ['apple', 'banana', 'orange', 'feverStar'], h: [], rate: 45, speed: 1.6, desc: "ดาวฟีเวอร์มาแล้ว!" },
+    { target: 80, f: ['apple', 'banana', 'orange', 'grape'], h: [], rate: 40, speed: 1.8, desc: "ฝนผลไม้ทะลัก" },
+    { target: 100, f: ['apple', 'banana'], h: ['bomb'], rate: 40, speed: 2.0, desc: "ระเบิดอันตราย!", concept: "การเลี่ยงระเบิด (Avoidance)", blocks: S_UI.c_block('c-ctrl', `ถ้า ${S_UI.bool('c-sns', 'ฟันโดนระเบิด 💣 ?')} แล้ว`, S_UI.stack('c-var', `ลดพลังชีวิต ${S_UI.input('1')}`)) },
+    { target: 150, f: ['watermelon', 'strawberry', 'grape', 'feverStar'], h: ['bomb'], rate: 35, speed: 2.2, desc: "ป่าเวทมนตร์" },
+    { target: 200, f: ['orange', 'mango'], h: ['bomb', 'rotten'], rate: 30, speed: 2.4, desc: "ระวังผลไม้เน่า" },
+    { target: 250, f: ['apple', 'banana', 'strawberry'], h: ['bomb', 'rock'], rate: 25, speed: 2.6, desc: "หินแข็งฟันไม่เข้า!" },
+    { target: 200, f: ['cherry', 'feverStar'], h: ['apple', 'banana', 'bomb'], rate: 20, speed: 2.8, desc: "ล่าเชอร์รี่เท่านั้น", concept: "เป้าหมายเฉพาะ (Specific Target)", blocks: S_UI.c_block_else('c-ctrl', `ถ้า ${S_UI.bool('c-sns', 'ฟันโดนเชอร์รี่ 🍒 ?')} แล้ว`, S_UI.stack('c-var', `เพิ่มคะแนน`), `มิฉะนั้น`, S_UI.stack('c-var', `หักคะแนน`)) },
+    { target: 400, f: ['mango', 'pineapple', 'feverStar'], h: ['bomb', 'rock', 'rotten'], rate: 18, speed: 3.0, desc: "บอสป่าสุดโหด" },
+    { target: 300, f: ['strawberry', 'grape', 'cherry'], h: ['lightning'], rate: 18, speed: 3.2, desc: "สายฟ้าฟาด" },
+    { target: 400, f: ['pineapple', 'mango', 'feverStar'], h: ['spiky'], rate: 16, speed: 3.4, desc: "ดงกระบองเพชร" },
+    { target: 500, f: ['apple', 'orange', 'watermelon'], h: ['bomb', 'lightning'], rate: 15, speed: 3.6, desc: "พายุทำลายล้าง" },
+    { target: 400, f: ['gold', 'feverStar'], h: ['bomb', 'rotten', 'spiky'], rate: 14, speed: 4.0, desc: "ล่าดาวทองคำ" },
+    { target: 800, f: ['apple','banana','orange','grape','watermelon','strawberry','mango','pineapple','cherry'], h: [], rate: 8, speed: 4.5, desc: "นาทีทอง! ฟันแหลก!" },
+    { target: 600, f: ['pineapple', 'cherry', 'dragon', 'feverStar'], h: ['rock', 'bomb'], rate: 12, speed: 4.8, desc: "อวกาศผลไม้" },
+    { target: 700, f: ['strawberry', 'grape', 'dragon'], h: ['lightning', 'rotten'], rate: 10, speed: 5.2, desc: "พายุอวกาศ" },
+    { target: 800, f: ['gold', 'cherry', 'mango', 'feverStar'], h: ['spiky', 'bomb'], rate: 9, speed: 5.6, desc: "อุกกาบาตถล่ม" },
+    { target: 1000, f: ['apple','banana','orange','grape','watermelon','strawberry','mango','pineapple','cherry','dragon'], h: ['rock','bomb','rotten','lightning','spiky'], rate: 8, speed: 6.0, desc: "นรกแตก" },
+    { target: 1500, f: ['gold', 'dragon', 'cherry', 'strawberry', 'feverStar'], h: ['bomb', 'lightning', 'spiky'], rate: 6, speed: 6.5, desc: "GOD TIER 🥷", concept: "ชัยชนะ (Victory)", blocks: S_UI.stack('c-ctrl', `รอจนกระทั่ง ${S_UI.bool('c-op', `${S_UI.val('c-var', 'คะแนน')} > ${S_UI.input('เป้าหมาย')}`)}`) + S_UI.stack('c-ev', `กระจายข้อความ ${S_UI.val('c-ev', 'ชนะเกม!')}`) }
+];
+
+const HAND_CONNECTIONS = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]];
+
+// --- AR System ---
+window.ARSystem = {
+    active: false, hands: null, camera: null, pinchActive: false, cursorX: 0, cursorY: 0,
+    async toggleAR() {
+        if (this.active) return;
+        if (typeof Hands === 'undefined' || typeof Camera === 'undefined') {
+            UI.showAlert("AR Not Ready", "ระบบตรวจจับกล้องยังไม่พร้อมใช้นะจ๊ะ ใช้นิ้วหรือเมาส์ลากฟันบนจอได้เลย!"); return;
+        }
+        document.getElementById('ar-loading').style.display = 'block';
+        try {
+            this.hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+            this.hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.65, minTrackingConfidence: 0.65 });
+            this.hands.onResults((results) => {
+                Game.arLandmarks = results.multiHandLandmarks; 
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    const lm = results.multiHandLandmarks[0];
+                    let screenX = (1 - lm[8].x) * cw; let screenY = lm[8].y * ch;
+                    this.cursorX = screenX; this.cursorY = screenY;
+                    
+                    if (window.Game && Game.state === 'PLAYING') {
+                        Game.addBladePoint(screenX, screenY);
+                    } else {
+                        const dist = Math.hypot(lm[8].x - lm[4].x, lm[8].y - lm[4].y);
+                        if (dist < 0.06) { if (!this.pinchActive) { this.pinchActive = true; this.triggerVirtualClick(screenX, screenY); } } 
+                        else { this.pinchActive = false; }
+                    }
+                } else { this.cursorX = -100; this.cursorY = -100; if(window.Game) Game.bladePoints = []; }
+            });
+            const videoEl = document.getElementById('video-bg');
+            videoEl.style.display = 'block'; videoEl.style.opacity = '0.35'; 
+            document.getElementById('game-container').style.background = 'transparent';
+            this.camera = new Camera(videoEl, { onFrame: async () => { await this.hands.send({image: videoEl}); }, width: 640, height: 480 });
+            await this.camera.start();
+            this.active = true; document.getElementById('ar-loading').style.display = 'none';
+            const btn = document.getElementById('menu-btn-ar');
+            if(btn) { btn.innerText = '✅ AR ดาบเลเซอร์ทำงานแล้ว!'; btn.style.background = '#00E676'; btn.style.boxShadow = '0 6px 0 #1B5E20'; btn.onclick = null; }
+        } catch (err) {
+            UI.showAlert("ข้อผิดพลาด", "เปิดกล้องไม่สำเร็จจ้า ใช้เมาส์ลากฟันแทนนะ!");
+            document.getElementById('ar-loading').style.display = 'none'; document.getElementById('video-bg').style.display = 'none';
+        }
+    },
+    triggerVirtualClick(x, y) {
+        if(!canvas) return;
+        const el = document.elementFromPoint(canvas.getBoundingClientRect().left + x, canvas.getBoundingClientRect().top + y);
+        if (el && (el.tagName === 'BUTTON' || el.tagName === 'INPUT' || el.closest('.btn') || el.closest('.level-btn'))) {
+            AudioSys.playTone(1200, 'sine', 0.1, 0.2);
+            (el.closest('.btn') || el.closest('.level-btn') || el).click();
+        }
+    }
+};
+
+// --- Core Game Engine ---
+window.Game = {
+    state: 'MENU', level: 1, maxUnlockedLevel: 1, score: 0, totalScore: 0, lives: 3,
+    combo: 0, multiplier: 1, feverTimer: 0, hitPauseFrames: 0, 
+    objects: [], particles: [], floatingTexts: [], splatters: [], frame: 0,
+    bladePoints: [], isDrawing: false, lastSwooshTime: 0,
+    config: null, levelProgress: 0, arLandmarks: null, boundLoop: null,
+
+    init() {
+        initCanvas();
+        this.loadProgress(); this.buildCodeSummary(); this.buildScratchTutorial();
+        this.showScreen('menu'); this.setupInputs();
+        this.boundLoop = this.loop.bind(this); requestAnimationFrame(this.boundLoop);
+    },
+
+    loadProgress() {
+        const sl = SafeStorage.getItem('fruitSlasherMaxLevel'); this.maxUnlockedLevel = parseInt(sl) || 1;
+        const sc = SafeStorage.getItem('fruitSlasherTotalScore'); this.totalScore = parseInt(sc) || 0;
+    },
+    saveProgress() { SafeStorage.setItem('fruitSlasherMaxLevel', this.maxUnlockedLevel); SafeStorage.setItem('fruitSlasherTotalScore', this.totalScore); },
+    resetGameData() { UI.showConfirm("ลบเซฟ?", "จะเคลียร์ทุกอย่างกลับไปเริ่มใหม่นะ?", () => { this.maxUnlockedLevel = 1; this.totalScore = 0; this.saveProgress(); this.showScreen('menu'); }); },
+
+    addBladePoint(x, y) {
+        this.bladePoints.push({x, y, age: 0});
+        if(this.bladePoints.length > 15) this.bladePoints.shift();
+        
+        // Play swoosh sound if moving fast
+        if (this.bladePoints.length > 2) {
+            const p1 = this.bladePoints[this.bladePoints.length-1];
+            const p2 = this.bladePoints[this.bladePoints.length-3];
+            const dist = Math.hypot(p1.x-p2.x, p1.y-p2.y);
+            if (dist > 40 && Date.now() - this.lastSwooshTime > 200) {
+                AudioSys.playSwoosh(); this.lastSwooshTime = Date.now();
+            }
+        }
+        this.checkSlice();
+    },
+
+    setupInputs() {
+        if (!canvas) return;
+        const getPos = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            return { x: (e.touches ? e.touches[0].clientX : e.clientX) - rect.left, 
+                     y: (e.touches ? e.touches[0].clientY : e.clientY) - rect.top };
+        };
+
+        canvas.addEventListener('mousedown', (e) => { if(this.state==='PLAYING'){this.isDrawing = true; this.bladePoints=[]; const p = getPos(e); this.addBladePoint(p.x, p.y);} });
+        canvas.addEventListener('mousemove', (e) => { if(this.state==='PLAYING' && this.isDrawing){ const p = getPos(e); this.addBladePoint(p.x, p.y); } });
+        canvas.addEventListener('mouseup', () => { this.isDrawing = false; });
+        canvas.addEventListener('mouseleave', () => { this.isDrawing = false; });
+
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); if(this.state==='PLAYING'){this.isDrawing = true; this.bladePoints=[]; const p = getPos(e); this.addBladePoint(p.x, p.y);} }, {passive: false});
+        canvas.addEventListener('touchmove', (e) => { e.preventDefault(); if(this.state==='PLAYING' && this.isDrawing){ const p = getPos(e); this.addBladePoint(p.x, p.y); } }, {passive: false});
+        canvas.addEventListener('touchend', () => { this.isDrawing = false; });
+    },
+
+    showScreen(id) {
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        if (id !== 'none') document.getElementById(`screen-${id}`)?.classList.add('active');
+        ['hud', 'progress-container', 'controls-hint'].forEach(el => { const doc = document.getElementById(el); if(doc) doc.style.display = (id === 'playing' ? (el==='progress-container'?'block':'flex') : 'none'); });
+        if(id==='playing') setTimeout(() => { const h = document.getElementById('controls-hint'); if(h) h.style.display = 'none'; }, 3000);
+    },
+
+    startNewGame() { this.level = 1; this.score = 0; this.setupLevelIntro(); },
+    showLevelSelect() {
+        const c = document.getElementById('level-grid-container'); if(!c) return; c.innerHTML = '';
+        for (let i = 1; i <= 20; i++) {
+            const b = document.createElement('button'); b.className = `level-btn ${i <= this.maxUnlockedLevel ? 'unlocked' : ''}`; b.innerText = i;
+            if (i <= this.maxUnlockedLevel) b.onclick = () => { this.level = i; this.score = 0; this.setupLevelIntro(); };
+            c.appendChild(b);
+        }
+        this.showScreen('level-select');
+    },
+
+    setupLevelIntro() {
+        this.state = 'LEVEL_INTRO'; this.config = LEVEL_CONFIGS[this.level - 1] || LEVEL_CONFIGS[0];
+        document.getElementById('intro-level-title').innerText = `ด่านที่ ${this.level}`;
+        document.getElementById('intro-objective').innerText = this.config.desc;
+        
+        document.getElementById('intro-code-section').style.display = this.config.concept ? 'block' : 'none';
+        if (this.config.concept) { document.getElementById('intro-concept-title').innerText = `🧠 เรียนรู้คำสั่ง: ${this.config.concept}`; document.getElementById('intro-scratch-blocks').innerHTML = this.config.blocks; }
+        
+        document.getElementById('intro-icons').innerHTML = this.level===9 ? EMOJIS.fruits.cherry.e : this.config.f.filter(f=>f!=='feverStar').slice(0,4).map(f=>EMOJIS.fruits[f] ? EMOJIS.fruits[f].e : '').join('') + (this.config.h.length ? ' ⚠️ ' + EMOJIS.hazards[this.config.h[0]].e : '');
+        this.showScreen('level-intro');
+    },
+
+    startLevelPlay() {
+        AudioSys.init(); resizeCanvas(); this.state = 'PLAYING'; this.lives = 3; this.levelProgress = 0; this.combo = 0; this.multiplier = 1; this.feverTimer = 0;
+        this.objects = []; this.particles = []; this.floatingTexts = []; this.splatters = []; this.bladePoints = []; this.frame = 0;
+        this.updateHUD(); this.showScreen('playing'); 
+    },
+    restartLevel() { this.startLevelPlay(); },
+    nextLevel() { this.level++; if (this.level > 20) this.showCertificate(); else this.setupLevelIntro(); },
+
+    updateHUD() {
+        document.getElementById('score').innerText = this.score; document.getElementById('level').innerText = this.level;
+        document.getElementById('lives-container').innerHTML = Array(3).fill(0).map((_,i) => `<span class="heart" style="opacity:${i<this.lives?1:0.2}; transform: scale(${i<this.lives?1:0.8})">${i<this.lives?'❤️':'🖤'}</span>`).join('');
+        document.getElementById('progress-bar').style.width = `${Math.min(100, (this.levelProgress / this.config.target) * 100)}%`;
+        const cDisp = document.getElementById('combo-display');
+        if (this.combo > 2) { cDisp.style.display = 'block'; document.getElementById('combo-count').innerText = this.multiplier; } else cDisp.style.display = 'none';
+    },
+
+    flashScreen(c) { const o = document.getElementById('flash-overlay'); if(o) { o.style.backgroundColor = c; o.style.opacity = '0.9'; setTimeout(() => o.style.opacity = '0', 80); } },
+
+    triggerFever() {
+        this.feverTimer = 300; AudioSys.playFever(); this.flashScreen('white'); 
+        this.createFloatingText(cw/2, ch/2, "SLOW-MO FEVER!", "#FFEA00", 60);
+    },
+
+    spawnObject() {
+        if (!this.config) return;
+        const isHazard = this.config.h.length > 0 && Math.random() < 0.2;
+        const keys = isHazard ? this.config.h : this.config.f;
+        const key = keys[Math.floor(Math.random() * keys.length)] || 'apple';
+        const isFever = key === 'feverStar';
+        const data = Object.assign({isHazard}, isHazard ? EMOJIS.hazards[key] : EMOJIS.fruits[key]);
+        const size = isFever ? 90 : 70 + Math.random()*20; 
+        
+        let vy = -(Math.random() * 8 + 14) * (this.feverTimer > 0 ? 0.6 : 1); 
+        let vx = (Math.random() - 0.5) * 6;
+        let startX = Math.random() * (cw - 100) + 50;
+
+        this.objects.push({ 
+            x: startX, y: ch + 50, size, vx, vy, 
+            rot: 0, rotSpeed: (Math.random()-0.5)*0.2, data, isSliced: false 
+        });
+    },
+
+    createEffects(x, y, color, type) {
+        const amt = type === 'splat' ? 20 : 30;
+        for(let i=0; i<amt; i++) {
+            this.particles.push({ 
+                x, y, vx: (Math.random()-0.5)*25, vy: (Math.random()-0.5)*25, 
+                life: 1, color: type==='splat' ? color : ['#FF1744', '#FFEA00', '#fff'][Math.floor(Math.random()*3)], 
+                size: Math.random()*(type==='splat'?8:15)+3 
+            });
+        }
+        if (type === 'splat' && Math.random() < 0.5) {
+            this.splatters.push({x, y, color, size: Math.random()*40+20, life: 1});
+        }
+    },
+
+    createFloatingText(x, y, text, color, size = 35) { this.floatingTexts.push({ x, y, text, color, size, life: 1.5, vy: -4 }); },
+
+    checkSlice() {
+        if (this.bladePoints.length < 2) return;
+        const p1 = this.bladePoints[this.bladePoints.length - 1];
+        const p2 = this.bladePoints[this.bladePoints.length - 2];
+        const speed = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+        
+        if (speed < 5) return; 
+
+        for (let i = this.objects.length - 1; i >= 0; i--) {
+            let obj = this.objects[i];
+            if (obj.isSliced) continue;
+
+            const distToFruit = Math.hypot(p1.x - obj.x, p1.y - obj.y);
+            if (distToFruit < obj.size/1.5) {
+                this.performSlice(obj, i);
+            }
+        }
+    },
+
+    performSlice(obj, index) {
+        if (obj.data.isHazard) {
+            AudioSys.playExplosion(); this.lives--; this.combo = 0; this.multiplier = 1; 
+            this.createEffects(obj.x, obj.y, '#FF0000', 'bomb'); this.hitPauseFrames = 20; this.flashScreen('white'); 
+            if(canvas) { canvas.style.transform = `translate(${(Math.random()-0.5)*50}px, ${(Math.random()-0.5)*50}px) scale(1.1)`; setTimeout(()=> canvas.style.transform = 'none', 300); }
+            this.objects.splice(index, 1);
+            if (this.lives <= 0) this.triggerGameOver(); 
+        } else {
+            obj.isSliced = true;
+            
+            if (obj.data.special === 'fever') { this.triggerFever(); this.createEffects(obj.x, obj.y, obj.data.c, 'splat'); this.objects.splice(index, 1); } 
+            else if (this.level === 9 && obj.data.e !== '🍒') {
+                 this.createEffects(obj.x, obj.y, obj.data.c, "splat"); this.score = Math.max(0, this.score - 5); this.combo = 0; this.multiplier = 1;
+                 AudioSys.playBad(); this.objects.splice(index, 1);
+            } else {
+                this.combo++; this.multiplier = Math.min(10, Math.floor(this.combo / 4) + 1); 
+                AudioSys.playSlice(this.multiplier);
+                const gained = obj.data.pts * this.multiplier; this.score += gained; this.levelProgress++;
+                
+                let tc = this.multiplier > 1 ? (this.multiplier > 4 ? "#FF1744" : "#FFEA00") : "#00E676";
+                this.createFloatingText(obj.x, obj.y, `+${gained}`, tc, 35 + (this.multiplier * 5));
+                
+                if (this.combo > 0 && this.combo % 4 === 0) {
+                    AudioSys.playCombo();
+                    const p = ["NICE!", "AWESOME!", "SUPER!", "NINJA!", "GODLIKE!"];
+                    this.createFloatingText(cw/2, ch/2, p[Math.min(4, this.multiplier-2)] || "COMBO!", "#D500F9", 70);
+                    this.flashScreen('rgba(255,255,255,0.2)');
+                }
+                
+                this.createEffects(obj.x, obj.y, obj.data.c, 'splat');
+                const sDisplay = document.getElementById('score-display');
+                if(sDisplay) { sDisplay.classList.remove('score-pop'); void sDisplay.offsetWidth; sDisplay.classList.add('score-pop'); }
+                
+                this.objects.push({ x: obj.x-10, y: obj.y, size: obj.size*0.7, vx: obj.vx - 3, vy: obj.vy, rot: obj.rot, rotSpeed: -0.3, data: obj.data, isSliced: true, isHalf: true });
+                this.objects.push({ x: obj.x+10, y: obj.y, size: obj.size*0.7, vx: obj.vx + 3, vy: obj.vy, rot: obj.rot, rotSpeed: 0.3, data: obj.data, isSliced: true, isHalf: true });
+                this.objects.splice(index, 1);
+
+                if (this.levelProgress >= this.config.target) this.triggerLevelComplete();
+            }
+        }
+        this.updateHUD();
+    },
+
+    triggerLevelComplete() {
+        this.state = 'COMPLETE'; AudioSys.playWin();
+        document.getElementById('complete-level-num').innerText = this.level; document.getElementById('complete-score').innerText = this.score;
+        this.totalScore += this.score; if (this.level >= this.maxUnlockedLevel) this.maxUnlockedLevel = this.level + 1; this.saveProgress();
+        for(let i=0; i<150; i++) this.particles.push({ x: cw/2, y: ch, vx: (Math.random()-0.5)*50, vy: -(Math.random()*40+20), life: 1.5, color: ['#f00','#0f0','#00f','#ff0','#f0f','#0ff', '#fff'][Math.floor(Math.random()*7)], size: Math.random()*15+8 });
+        setTimeout(() => this.showScreen('level-complete'), 1500);
+    },
+    triggerGameOver() { this.state = 'GAMEOVER'; AudioSys.playLose(); setTimeout(() => this.showScreen('game-over'), 1000); },
+
+    update() {
+        if (this.state !== 'PLAYING') { this.updateParticles(); return; }
+        if (this.hitPauseFrames > 0) { this.hitPauseFrames--; return; } 
+        this.frame++;
+        
+        if(this.feverTimer > 0) {
+            this.feverTimer--; 
+            if(!ARSystem.active) document.getElementById('game-container').style.background = `radial-gradient(circle at center, hsl(${this.frame%360}, 80%, 30%) 0%, #111 100%)`;
+        } else if(!ARSystem.active && this.config) {
+            document.getElementById('game-container').style.background = `radial-gradient(circle at center, #37474F 0%, #111 100%)`;
+        }
+
+        for(let i=0; i<this.bladePoints.length; i++) this.bladePoints[i].age++;
+        this.bladePoints = this.bladePoints.filter(p => p.age < 8);
+
+        const rate = this.config?.rate || 40;
+        if (this.frame % (this.feverTimer > 0 ? Math.max(5, rate/4) : rate) === 0) this.spawnObject();
+
+        for (let i = this.objects.length - 1; i >= 0; i--) {
+            let obj = this.objects[i];
+            if (!obj) continue;
+            
+            let gravity = this.feverTimer > 0 ? 0.15 : 0.3; 
+            obj.vy += gravity; 
+            obj.x += obj.vx;
+            obj.y += obj.vy; 
+            obj.rot += obj.rotSpeed;
+            
+            if(obj.y > ch + obj.size) {
+                if (!obj.isHalf && !obj.data.isHazard && obj.data.e !== '🌟' && this.level !== 9) { 
+                    this.combo = 0; this.multiplier = 1; this.updateHUD(); 
+                }
+                this.objects.splice(i, 1);
+            }
+        }
+
+        this.updateParticles();
+    },
+
+    updateParticles() {
+        for (let i = this.particles.length - 1; i >= 0; i--) { let p = this.particles[i]; p.x += p.vx; p.y += p.vy; p.vy += 1.0; p.life -= 0.03; if (p.life <= 0) this.particles.splice(i, 1); }
+        for (let i = this.floatingTexts.length - 1; i >= 0; i--) { let ft = this.floatingTexts[i]; ft.y += ft.vy; ft.life -= 0.03; if (ft.life <= 0) this.floatingTexts.splice(i, 1); }
+        for (let i = this.splatters.length - 1; i >= 0; i--) { let sp = this.splatters[i]; sp.life -= 0.005; if (sp.life <= 0) this.splatters.splice(i, 1); }
+    },
+
+    draw() {
+        if (!ctx) return; ctx.clearRect(0, 0, cw, ch);
+        
+        ctx.globalCompositeOperation = 'multiply';
+        for (let sp of this.splatters) {
+            ctx.fillStyle = sp.color; ctx.globalAlpha = sp.life * 0.5;
+            ctx.beginPath(); ctx.arc(sp.x, sp.y, sp.size, 0, Math.PI*2); ctx.fill();
+        }
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalAlpha = 1;
+
+        for (let obj of this.objects) {
+            if (!obj || !obj.data) continue;
+            ctx.save(); ctx.translate(obj.x, obj.y); ctx.rotate(obj.rot); 
+            ctx.font = `${obj.size}px Arial`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            
+            if (this.feverTimer > 0 && !obj.data.isHazard) { ctx.shadowColor = '#FFF'; ctx.shadowBlur = 20; } 
+            else { ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 5; }
+            
+            if (obj.isHalf) { ctx.globalAlpha = 0.8; }
+            ctx.fillText(obj.data.e, 0, 0); 
+            ctx.restore();
+        }
+
+        for (let p of this.particles) { ctx.fillStyle = p.color; ctx.globalAlpha = Math.max(0, p.life); ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill(); } ctx.globalAlpha = 1;
+        
+        if (this.bladePoints.length > 1) {
+            ctx.beginPath();
+            ctx.moveTo(this.bladePoints[0].x, this.bladePoints[0].y);
+            for(let i=1; i<this.bladePoints.length; i++) { ctx.lineTo(this.bladePoints[i].x, this.bladePoints[i].y); }
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+            ctx.lineWidth = this.feverTimer > 0 ? 15 : 8;
+            ctx.strokeStyle = this.feverTimer > 0 ? `hsl(${this.frame%360}, 100%, 70%)` : '#00E5FF';
+            ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 20;
+            ctx.stroke();
+            ctx.lineWidth = this.feverTimer > 0 ? 8 : 3;
+            ctx.strokeStyle = '#FFFFFF'; ctx.shadowBlur = 0;
+            ctx.stroke();
+        }
+        
+        if (ARSystem.active && this.arLandmarks) {
+            ctx.save();
+            for (const lm of this.arLandmarks) {
+                ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)'; ctx.lineCap = 'round';
+                ctx.beginPath(); for (const c of HAND_CONNECTIONS) { ctx.moveTo((1-lm[c[0]].x)*cw, lm[c[0]].y*ch); ctx.lineTo((1-lm[c[1]].x)*cw, lm[c[1]].y*ch); } ctx.stroke();
+                
+                ctx.fillStyle = 'rgba(0, 229, 255, 0.8)';
+                for (let i of [4, 8, 12, 16, 20]) { ctx.beginPath(); ctx.arc((1-lm[i].x)*cw, lm[i].y*ch, 6, 0, 2*Math.PI); ctx.fill(); }
+                
+                const indexX = (1-lm[8].x)*cw; const indexY = lm[8].y*ch;
+                ctx.fillStyle = '#FFF'; ctx.shadowColor = '#00E5FF'; ctx.shadowBlur = 20;
+                ctx.beginPath(); ctx.arc(indexX, indexY, 10, 0, 2*Math.PI); ctx.fill();
+                
+                if (Math.random() < 0.6) this.particles.push({ x: indexX, y: indexY, vx: (Math.random()-0.5)*5, vy: (Math.random()-0.5)*5, life: 0.5, color: '#00E5FF', size: Math.random()*5+2 });
+            }
+            ctx.restore();
+            
+            if (this.state !== 'PLAYING') { ctx.save(); ctx.font = "40px Arial"; ctx.shadowColor = "#FFEA00"; ctx.shadowBlur = 25; ctx.fillText(ARSystem.pinchActive ? "🎯" : "✨", ARSystem.cursorX, ARSystem.cursorY); ctx.restore(); }
+        }
+
+        for (let ft of this.floatingTexts) {
+            ctx.font = `900 ${ft.size}px 'Prompt', sans-serif`; ctx.textAlign = 'center'; ctx.fillStyle = ft.color; ctx.globalAlpha = Math.max(0, ft.life);
+            ctx.strokeStyle = '#000'; ctx.lineWidth = 5; ctx.strokeText(ft.text, ft.x, ft.y); ctx.fillText(ft.text, ft.x, ft.y);
+        }
+        ctx.globalAlpha = 1;
+    },
+    loop() { this.update(); this.draw(); requestAnimationFrame(this.boundLoop); },
+
+    buildCodeSummary() {
+        const sections = [
+            { title: "1. การสร้างวิถีดาบ (Blade Trail)", blocks: S_UI.hat('c-ev', 'เมื่อคลิก 🟢') + S_UI.c_block('c-ctrl', 'วนซ้ำตลอด', S_UI.stack('c-mot', `วาดเส้นตาม ${S_UI.val('c-sns', 'ตำแหน่ง X, Y ของเมาส์')}`)) },
+            { title: "2. การตรวจจับการฟัน (Intersection)", blocks: S_UI.hat('c-ctrl', 'เมื่อฉันเริ่มในฐานะโคลน (ผลไม้)') + S_UI.c_block('c-ctrl', 'วนซ้ำตลอด', S_UI.c_block('c-ctrl', `ถ้า ${S_UI.bool('c-sns', 'วิถีดาบตัดผ่าน ?')} แล้ว`, S_UI.stack('c-mot', `แตกเป็น 2 ซีก`) + S_UI.stack('c-var', `เพิ่ม ${S_UI.val('c-var', 'คะแนน')} ทีละ 10`))) },
+            { title: "3. ระบบฟิสิกส์โยนของ (Gravity Toss)", blocks: S_UI.stack('c-var', `ตั้งค่า ${S_UI.val('c-var', 'ความเร็ว Y')} เป็น -15`) + S_UI.c_block('c-ctrl', 'วนซ้ำตลอด', S_UI.stack('c-var', `เปลี่ยน ${S_UI.val('c-var', 'ความเร็ว Y')} ทีละ 0.5 (แรงโน้มถ่วง)`) + S_UI.stack('c-mot', `เปลี่ยน Y ทีละ ${S_UI.val('c-var', 'ความเร็ว Y')}`)) }
+        ];
+        document.getElementById('code-summary-content').innerHTML = sections.map(sec => `<div class="summary-section"><h3 class="summary-title">${sec.title}</h3><div class="scratch-container">${sec.blocks}</div></div>`).join('');
+    },
+    showCodeSummary() { this.showScreen('code-summary'); },
+    buildScratchTutorial() {
+        const steps = [
+            { title: "1. วิถีดาบนินจา ⚔️", desc: "ใช้บล็อก Pen (ปากกา) จรดปากกาแล้วลากเส้นตามเมาส์ตลอดเวลา เพื่อสร้างเอฟเฟกต์ดาบ", blocks: S_UI.hat('c-ev', 'เมื่อคลิก 🟢') + S_UI.c_block('c-ctrl', 'วนซ้ำตลอด', S_UI.stack('c-mot', `ไปที่ ${S_UI.val('c-sns', 'ตัวชี้เมาส์')}`) + S_UI.stack('c-mot', 'จรดปากกา')) },
+            { title: "2. โยนผลไม้ขึ้นฟ้า 🍎", desc: "ตั้งค่า Y ให้เริ่มจากขอบล่าง แล้วใช้ความเร็วแกน Y ติดลบเพื่อพุ่งขึ้น", blocks: S_UI.stack('c-mot', `ไปที่ x: สุ่ม y: -180`) + S_UI.stack('c-var', `ตั้งค่า SpeedY เป็น -15`) },
+            { title: "3. แรงโน้มถ่วง (Gravity) 🌍", desc: "ผลไม้ต้องตกลงมา ให้เพิ่ม SpeedY ทีละนิด", blocks: S_UI.c_block('c-ctrl', 'วนซ้ำตลอด', S_UI.stack('c-var', `เปลี่ยน SpeedY ทีละ 0.5`) + S_UI.stack('c-mot', `เปลี่ยน Y ทีละ SpeedY`)) },
+            { title: "4. ตรวจจับการถูกฟัน 💥", desc: "ถ้าผลไม้แตะโดนสีของวิถีดาบ ให้ได้แต้ม!", blocks: S_UI.c_block('c-ctrl', `ถ้า ${S_UI.bool('c-sns', 'แตะโดนสีดาบ ?')} แล้ว`, S_UI.stack('c-var', `เพิ่มคะแนน 10`) + S_UI.stack('c-ctrl', 'ลบโคลนนี้')) },
+            { title: "5. เป็นมาสเตอร์นินจา! 🥷", desc: "รันเกมแล้วโชว์ความไวของนิ้วได้เลย!", blocks: `<div style="font-size:3rem;text-align:center;">🎮👏</div>` }
+        ];
+        document.getElementById('scratch-tutorial-content').innerHTML = steps.map(step => `<div class="summary-section" style="border-left:5px solid var(--primary);"><h3 class="summary-title" style="color:var(--primary);">${step.title}</h3><p>${step.desc}</p>${step.blocks ? `<div class="scratch-container bg-gray-50">${step.blocks}</div>`:''}</div>`).join('');
+    },
+    showScratchTutorial() { this.showScreen('scratch-tutorial'); },
+    showCertificate() { this.state = 'CERT'; AudioSys.playWin(); document.getElementById('cert-total-score').innerText = this.totalScore; this.showScreen('certificate'); },
+    printCertificate() {
+        const input = document.getElementById('cert-input-name'); const display = document.getElementById('cert-display-name');
+        if(input.value.trim() === '') { UI.showAlert("เตือน!", "พิมพ์ชื่อนินจาก่อนปริ้นท์นะ!"); input.focus(); return; }
+        display.innerText = input.value; input.parentElement.classList.add('hidden'); display.classList.remove('hidden');
+        setTimeout(() => { window.print(); input.parentElement.classList.remove('hidden'); display.classList.add('hidden'); }, 500);
+    }
+};
+
+const bootGame = () => { if(window.gameBooted) return; window.gameBooted = true; Game.init(); };
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootGame); else bootGame();
+
+</script>
+</body>
+</html>
